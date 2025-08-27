@@ -6069,36 +6069,6 @@ function LeaPlusLC:Player()
                             end
                         end
                     end
-                    -- Set hover scripts for all buttons
-                    local function SetupButtonHoverScripts()
-                        for _, button in pairs(minimapButtons) do
-                            if button then
-                                button:HookScript("OnEnter", function()
-                                    -- Show all buttons when hovering over one
-                                    for _, btn in pairs(minimapButtons) do
-                                        btn:SetAlpha(1)
-                                    end
-                                end)
-                                button:HookScript("OnLeave", function()
-                                    -- Hide buttons if mouse is not over minimap or any button
-                                    if not Minimap:IsMouseOver() then
-                                        local mouseOverAny = false
-                                        for _, btn in pairs(minimapButtons) do
-                                            if btn:IsMouseOver() then
-                                                mouseOverAny = true
-                                                break
-                                            end
-                                        end
-                                        if not mouseOverAny then
-                                            for _, btn in pairs(minimapButtons) do
-                                                btn:SetAlpha(0)
-                                            end
-                                        end
-                                    end
-                                end)
-                            end
-                        end
-                    end
 
                     local function HideMinimapButtons()
                         local searchStr = LeaPlusDB["MiniExcludeList"]
@@ -6180,49 +6150,17 @@ function LeaPlusLC:Player()
 
                     -- This function is called when the mouse enters the minimap area.
                     local function Minimap_OnEnter()
-                        -- If the mouse is over a child, we show all minimap buttons.
-                        Minimap:HookScript("OnUpdate", function(self, elapsed)
-                            local numChildren = Minimap:GetNumChildren()
-                            local mouseOverChild = false
-                            local mouseOverMinimap = Minimap:IsMouseOver() -- Check if the mouse is over the minimap
-                            for i = 1, numChildren do
-                                local child = select(i, Minimap:GetChildren())
-                                if child and child:IsObjectType("Button") then
-                                    local x, y = child:GetCenter()
-                                    if x and y then
-                                        -- Check if x and y are not nil
-                                        x, y = x * child:GetEffectiveScale(), y * child:GetEffectiveScale()
-                                        local cx, cy = GetCursorPosition()
-                                        local dist = sqrt((x - cx) ^ 2 + (y - cy) ^ 2) / 3 -- Triple the distance of buttons OnEnter alpha trigger
-
-                                        if dist < child:GetWidth() / 2 then
-                                            mouseOverChild = true
-                                            break
-                                        end
-                                    end
-                                end
-                            end
-
-                            -- If the mouse is over either the minimap or a child, show the buttons
-                            if mouseOverMinimap or mouseOverChild then
-                                ShowMinimapButtons()
-                            else
-                                HideMinimapButtons()
-                            end
-                        end)
-                    end
-
-
-
+                        ShowMinimapButtons()
+                        end
+            
                     -- This function is called when the mouse leaves the minimap area.
                     local function Minimap_OnLeave()
                         HideMinimapButtons()
-                    end
-
+                        end
+            
                     -- Finally, we create a timer that will capture new minimap children every 0.5 seconds.
                     LibCompat.NewTicker(1, function()
                         GetMinimapChildren()
-                        SetupButtonHoverScripts() -- Apply hover scripts to each button
                     end)
 
                     -- We set up the minimap to respond to mouse events.
