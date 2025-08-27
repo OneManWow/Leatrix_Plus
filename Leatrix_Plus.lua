@@ -839,13 +839,11 @@ function LeaPlusLC:Live()
         LpEvt:RegisterEvent("LOOT_BIND_CONFIRM")
         LpEvt:RegisterEvent("MERCHANT_CONFIRM_TRADE_TIMER_REMOVAL")
         LpEvt:RegisterEvent("MAIL_LOCK_SEND_ITEMS")
-        LpEvt:RegisterEvent("CONFIRM_DISENCHANT_ROLL")
     else
         LpEvt:UnregisterEvent("CONFIRM_LOOT_ROLL")
         LpEvt:UnregisterEvent("LOOT_BIND_CONFIRM")
         LpEvt:UnregisterEvent("MERCHANT_CONFIRM_TRADE_TIMER_REMOVAL")
         LpEvt:UnregisterEvent("MAIL_LOCK_SEND_ITEMS")
-        LpEvt:UnregisterEvent("CONFIRM_DISENCHANT_ROLL")
     end
 
 end
@@ -5753,15 +5751,128 @@ function LeaPlusLC:Player()
 
             -- Rescale addon buttons if combine addon buttons is disabled
             if LeaPlusLC["CombineAddonButtons"] == "Off" then
-                -- -- Scale existing buttons
-                -- local buttons = LibDBIconStub:GetButtonList()
-                -- for i = 1, #buttons do
-                -- 	local button = LibDBIconStub:GetMinimapButton(buttons[i])
-                -- 	button:SetScale(0.75)
-                -- end
-                -- -- Scale new buttons
-                -- -- LibDBIcon_IconCreated: Done in LiBDBIcon callback function
+    -- Function to set button state (OPTIMIZED VERSION)
+            local function SetHideButtons()
+            if LeaPlusLC["HideMiniAddonButtons"] == "On" then
+
+            -- 1. 创建一个单一的、隐形的悬停区域框架
+            if not LeaPlusLC.MinimapHoverFrame then
+                local hoverFrame = CreateFrame("Frame", "LeatrixPlusMinimapHoverFrame", Minimap)
+                -- 让它比小地图大一些，制造一个缓冲区
+                hoverFrame:SetSize(Minimap:GetWidth() + 80, Minimap:GetHeight() + 80) 
+                hoverFrame:SetPoint("CENTER")
+                hoverFrame:SetFrameStrata("HIGH") -- 确保它在小地图之上
+                -- hoverFrame:SetAlpha(0.2) -- 调试时可以设置一个透明度来查看区域
+                LeaPlusLC.MinimapHoverFrame = hoverFrame
             end
+            
+            local hoverFrame = LeaPlusLC.MinimapHoverFrame
+            hoverFrame:EnableMouse(true) -- 确保它可以接收鼠标事件
+
+            -- 2. 简化按钮管理逻辑
+            local minimapButtons = {}
+
+            local function GetMinimapChildren()
+                wipe(minimapButtons)
+                local numChildren = Minimap:GetNumChildren()
+                for i = 1, numChildren do
+                    local child = select(i, Minimap:GetChildren())
+                    if child and child:IsObjectType("Button") and child:GetName() then
+                        minimapButtons[child:GetName()] = child
+                    end
+                end
+            end
+
+            local function ShowMinimapButtons()
+                for _, button in pairs(minimapButtons) do
+                    if button then button:SetAlpha(1) end
+                end
+            end
+
+            local function HideMinimapButtons()
+                local searchStr = LeaPlusDB["MiniExcludeList"] or ""
+                local keepVisible = {
+                    "ZGV", "Spy", "MiniMapBattlefieldFrame", "GatherMatePin", "HandyNotesPin",
+                    "Archy", "GatherNote", "poiWorldMapPOIFrame", "WorldMapPOIFrame",
+                    "QuestMapPOI", "pfMiniMapPin",
+                    (LeaPlusLC["ClockMouseover"] == "Off" and "TimeManagerClockButton" or nil)
+                }
+
+                -- 移除 keepVisible 表中的 nil 值
+                for i = #keepVisible, 1, -1 do
+                    if not keepVisible[i] then
+                        table.remove(keepVisible, i)
+                    end
+                end
+
+                local excludedNames = { strsplit(",", searchStr) }
+
+                for name, button in pairs(minimapButtons) do
+                    local shouldKeep = false
+                    -- 检查是否在永久保留列表
+                    for _, visible in ipairs(keepVisible) do
+                        if string.find(name, visible) then
+                            shouldKeep = true
+                            break
+                        end
+                    end
+                    -- 如果不在永久保留列表，再检查用户自定义的排除列表
+                    if not shouldKeep then
+                        for _, excludedName in ipairs(excludedNames) do
+                            if string.find(name, strtrim(excludedName)) then
+                                shouldKeep = true
+                                break
+                            end
+                        end
+                    end
+
+                    if not shouldKeep then
+                        button:SetAlpha(0)
+                    end
+                end
+            end
+
+            -- 3. 绑定事件到悬停区域框架，而不是使用 OnUpdate
+            hoverFrame:SetScript("OnEnter", ShowMinimapButtons)
+            hoverFrame:SetScript("OnLeave", HideMinimapButtons)
+            
+            -- 初始设置和定期更新按钮列表
+            local ticker = LibCompat.NewTicker(2, function() -- 每2秒检查一次新按钮，比每帧检查高效得多
+                GetMinimapChildren()
+                -- 如果鼠标不在悬停区，则应用隐藏逻辑
+                if not hoverFrame:IsMouseOver() then
+                    HideMinimapButtons()
+                end
+            end)
+
+            -- 首次加载时立即执行一次
+            GetMinimapChildren()
+            HideMinimapButtons()
+
+        else -- 如果 "HideMiniAddonButtons" 功能被关闭
+            if LeaPlusLC.MinimapHoverFrame then
+                LeaPlusLC.MinimapHoverFrame:EnableMouse(false)
+                LeaPlusLC.MinimapHoverFrame:SetScript("OnEnter", nil)
+                LeaPlusLC.MinimapHoverFrame:SetScript("OnLeave", nil)
+            end
+            -- 确保所有按钮都可见
+            local allButtons = {Minimap:GetChildren()}
+            for _, child in ipairs(allButtons) do
+                 if child and child.SetAlpha then
+                    child:SetAlpha(1)
+                 end
+            end
+        end
+    end
+
+    -- Assign file level scope (it's used in reset and preset)
+    LeaPlusLC.SetHideButtons = SetHideButtons
+
+    -- Set buttons when option is clicked and on startup
+    LeaPlusCB["HideMiniAddonButtons"]:HookScript("OnClick", SetHideButtons)
+    SetHideButtons()
+
+end
 
             -- Refresh buttons
             LibCompat.After(0.1, SetButtonRad)
@@ -6069,6 +6180,36 @@ function LeaPlusLC:Player()
                             end
                         end
                     end
+                    -- Set hover scripts for all buttons
+                    local function SetupButtonHoverScripts()
+                        for _, button in pairs(minimapButtons) do
+                            if button then
+                                button:HookScript("OnEnter", function()
+                                    -- Show all buttons when hovering over one
+                                    for _, btn in pairs(minimapButtons) do
+                                        btn:SetAlpha(1)
+                                    end
+                                end)
+                                button:HookScript("OnLeave", function()
+                                    -- Hide buttons if mouse is not over minimap or any button
+                                    if not Minimap:IsMouseOver() then
+                                        local mouseOverAny = false
+                                        for _, btn in pairs(minimapButtons) do
+                                            if btn:IsMouseOver() then
+                                                mouseOverAny = true
+                                                break
+                                            end
+                                        end
+                                        if not mouseOverAny then
+                                            for _, btn in pairs(minimapButtons) do
+                                                btn:SetAlpha(0)
+                                            end
+                                        end
+                                    end
+                                end)
+                            end
+                        end
+                    end
 
                     local function HideMinimapButtons()
                         local searchStr = LeaPlusDB["MiniExcludeList"]
@@ -6150,17 +6291,49 @@ function LeaPlusLC:Player()
 
                     -- This function is called when the mouse enters the minimap area.
                     local function Minimap_OnEnter()
-                        ShowMinimapButtons()
-                        end
-            
+                        -- If the mouse is over a child, we show all minimap buttons.
+                        Minimap:HookScript("OnUpdate", function(self, elapsed)
+                            local numChildren = Minimap:GetNumChildren()
+                            local mouseOverChild = false
+                            local mouseOverMinimap = Minimap:IsMouseOver() -- Check if the mouse is over the minimap
+                            for i = 1, numChildren do
+                                local child = select(i, Minimap:GetChildren())
+                                if child and child:IsObjectType("Button") then
+                                    local x, y = child:GetCenter()
+                                    if x and y then
+                                        -- Check if x and y are not nil
+                                        x, y = x * child:GetEffectiveScale(), y * child:GetEffectiveScale()
+                                        local cx, cy = GetCursorPosition()
+                                        local dist = sqrt((x - cx) ^ 2 + (y - cy) ^ 2) / 3 -- Triple the distance of buttons OnEnter alpha trigger
+
+                                        if dist < child:GetWidth() / 2 then
+                                            mouseOverChild = true
+                                            break
+                                        end
+                                    end
+                                end
+                            end
+
+                            -- If the mouse is over either the minimap or a child, show the buttons
+                            if mouseOverMinimap or mouseOverChild then
+                                ShowMinimapButtons()
+                            else
+                                HideMinimapButtons()
+                            end
+                        end)
+                    end
+
+
+
                     -- This function is called when the mouse leaves the minimap area.
                     local function Minimap_OnLeave()
                         HideMinimapButtons()
-                        end
-            
+                    end
+
                     -- Finally, we create a timer that will capture new minimap children every 0.5 seconds.
                     LibCompat.NewTicker(1, function()
                         GetMinimapChildren()
+                        SetupButtonHoverScripts() -- Apply hover scripts to each button
                     end)
 
                     -- We set up the minimap to respond to mouse events.
@@ -7978,36 +8151,21 @@ function LeaPlusLC:Player()
                 editFrame:Hide()
             end
 
-            -- === Unified start/landing watcher ===
-            -- Record the moment TakeTaxiNode was clicked
-            local timeStart = GetTime()
-            -- Delay a moment to let the client register TakeTaxiNode()
+            --local PLAYER_ON_TAXI = false
             LibCompat.After(0.1, function()
                 local ticker
-                local seenAirborne = false           -- became true once we detect UnitOnTaxi==true
-                local timeSinceStart = 0             -- accumulates elapsed time
-                local MAX_START_DELAY = 5            -- give up start check after 5s
+                ticker = LibCompat.NewTicker(0.1, function()
 
-                ticker = LibCompat.NewTicker(0.1, function(self, elapsed)
-                    local dt = elapsed or 0.1
-                    timeSinceStart = timeSinceStart + dt
-
-                    -- 1) If we never got airborne within MAX_START_DELAY → cancel watcher
-                    if not seenAirborne and timeSinceStart > MAX_START_DELAY then
-                        LibCompat.CancelTimer(ticker)
-                        return
-                    end
-
-                    -- 2) Detect actual takeoff
                     if UnitOnTaxi("player") then
-                        seenAirborne = true
-                        return
-                    end
-
-                    -- 3) After having been airborne, first false → real landing
-                    if seenAirborne then
-                        LibCompat.CancelTimer(ticker)
+                        -- print("ticking")
+                        --PLAYER_ON_TAXI = true
+                        --if PLAYER_ON_TAXI == true then print("register event") end
+                    elseif not UnitOnTaxi("player") then
+                        LibCompat.CancelTimer(ticker) -- stop the timer
+                        --PLAYER_ON_TAXI = false
                         Leatrix_HandleFlightLanding()
+                        --print("unregister event")
+                        --if PLAYER_ON_TAXI == false then print("unregister event") else print("event still registered") end
                         if LeaPlusLC.FlightProgressBar then
                             LeaPlusLC.FlightProgressBar:Stop()
                             LeaPlusLC.FlightProgressBar = nil
@@ -8082,25 +8240,25 @@ function LeaPlusLC:Player()
                     --print(debugString)
 
 
-                    ---- Handle flight time not correct or flight does not exist in database
-                    --local timeStart = GetTime()
-                    --LibCompat.After(0.2, function()
-                    --    if UnitOnTaxi("player") then
-                    --        -- Player is on a taxi so register when taxi lands
-                    --        -- flightFrame:RegisterEvent("PLAYER_CONTROL_GAINED")
-                    --        --if PLAYER_ON_TAXI == true then print("unit is on taxi") else PLAYER_ON_TAXI = false end
-                    --
-                    --    else
-                    --        -- Player is not on a taxi so delete the flight progress bar
-                    --        -- flightFrame:UnregisterEvent("PLAYER_CONTROL_GAINED")
-                    --        if LeaPlusLC.FlightProgressBar then
-                    --            LeaPlusLC.FlightProgressBar:Stop()
-                    --            LeaPlusLC.FlightProgressBar = nil
-                    --            --PLAYER_ON_TAXI = false
-                    --        end
-                    --
-                    --    end
-                    --end)
+                    -- Handle flight time not correct or flight does not exist in database
+                    local timeStart = GetTime()
+                    LibCompat.After(0.2, function()
+                        if UnitOnTaxi("player") then
+                            -- Player is on a taxi so register when taxi lands
+                            -- flightFrame:RegisterEvent("PLAYER_CONTROL_GAINED")
+                            --if PLAYER_ON_TAXI == true then print("unit is on taxi") else PLAYER_ON_TAXI = false end
+
+                        else
+                            -- Player is not on a taxi so delete the flight progress bar
+                            -- flightFrame:UnregisterEvent("PLAYER_CONTROL_GAINED")
+                            if LeaPlusLC.FlightProgressBar then
+                                LeaPlusLC.FlightProgressBar:Stop()
+                                LeaPlusLC.FlightProgressBar = nil
+                                --PLAYER_ON_TAXI = false
+                            end
+
+                        end
+                    end)
 
                     function Leatrix_HandleFlightLanding()
                         --print("debug report script fire")
@@ -15519,35 +15677,12 @@ function LeaPlusLC:RunOnce()
         local function MarkCurrentTrackListened()
             if LastFolder == L["Random"] and LastPlayed and trackStartTime and trackStartTime > 0 then
                 local elapsed = GetTime() - trackStartTime
-                local id = GetTrackIDFromPath(LastPlayed) -- Get ID early
-
-                if not id or id == "" then return end -- No valid ID, nothing to do
-
-                -- Extract total duration of the track
-                local totalDurationStr = string.match(LastPlayed, "#(%d+)")
-                local totalDurationNum
-
-                if totalDurationStr then
-                    totalDurationNum = tonumber(totalDurationStr)
-                end
-
-                local shouldMarkListened = false
-
-                if totalDurationNum and totalDurationNum < 15 then
-                    -- For short tracks: if it has played at all (elapsed > 0, to avoid issues if trackStartTime was just set)
-                    if elapsed > 5 then -- Or a very small threshold like elapsed >= 0.1 if needed
-                        shouldMarkListened = true
+                if elapsed >= 15 then
+                    local id = GetTrackIDFromPath(LastPlayed)
+                    if id and id ~= "" then
+                        LeaPlusDB["ListenedTracks"][id] = true
+                        --LeaPlusLC:Print("Added track to listened: " .. id)
                     end
-                else
-                    -- For longer tracks: original 15-second rule
-                    if elapsed >= 15 then
-                        shouldMarkListened = true
-                    end
-                end
-
-                if shouldMarkListened then
-                    LeaPlusDB["ListenedTracks"][id] = true
-                    --LeaPlusLC:Print("Added track to listened: " .. id)
                 end
             end
         end
@@ -15654,22 +15789,15 @@ function LeaPlusLC:RunOnce()
                 LeaPlusLC.TrackTimer:Cancel()
             end
             if trackTime then
-                -- Convert trackTime (which is a string) to a number before using it
-                local numericTrackTime = tonumber(trackTime)
-                if numericTrackTime then -- Ensure conversion was successful
-                    LeaPlusLC.TrackTimer = LibCompat.NewTimer(numericTrackTime, function()
-                        -- Automatic mark track after listened fully
-                        MarkCurrentTrackListened()
-                        StopMusic()
-                        if tracknumber > #playlist then
-                            tracknumber = 1
-                        end
-                        PlayTrack()
-                    end)
-                else
-                    -- Handle case where trackTime couldn't be converted (optional, for robustness)
-                    -- LeaPlusLC:Print("Error: Invalid trackTime format for " .. LastPlayed)
-                end
+                LeaPlusLC.TrackTimer = LibCompat.NewTimer(trackTime + 1, function()
+                    -- Automatic mark track after listened fully
+                    MarkCurrentTrackListened()
+                    StopMusic()
+                    if tracknumber > #playlist then
+                        tracknumber = 1
+                    end
+                    PlayTrack()
+                end)
             end
 
             -- Обновить статус
@@ -16674,13 +16802,6 @@ local function eventHandler(self, event, arg1, arg2, ...)
     if event == "LOOT_BIND_CONFIRM" then
         ConfirmLootSlot(arg1, arg2)
         StaticPopup_Hide("LOOT_BIND", ...)
-        return
-    end
-
-    -- Disable warning for attempting to disenchant items
-    if event == "CONFIRM_DISENCHANT_ROLL" then
-        ConfirmLootRoll(arg1, arg2)
-        StaticPopup_Hide("CONFIRM_LOOT_ROLL")
         return
     end
 
